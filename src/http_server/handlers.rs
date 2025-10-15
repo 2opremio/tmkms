@@ -180,7 +180,10 @@ fn create_success_response(chain_id: &str) -> Result<reply::WithStatus<reply::Js
 }
 
 /// Create an error response
-fn create_error_response(message: &str, status: StatusCode) -> Result<reply::WithStatus<reply::Json>, Rejection> {
+fn create_error_response(
+    message: &str,
+    status: StatusCode,
+) -> Result<reply::WithStatus<reply::Json>, Rejection> {
     let error = ErrorResponse {
         error: message.to_string(),
     };

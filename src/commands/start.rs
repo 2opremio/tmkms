@@ -88,7 +88,7 @@ fn run_app_with_http_server(
     // Run the main application logic in the tokio runtime
     rt.block_on(async {
         // Start HTTP server in background within the runtime
-        let http_server = HttpServer::new(http_config);
+        let mut http_server = HttpServer::new(http_config);
         let http_handle = http_server.start_background();
 
         // Spawn the validator clients in the tokio runtime
@@ -101,7 +101,7 @@ fn run_app_with_http_server(
         tokio::select! {
             result = http_handle => {
                 match result {
-                    Ok(Ok(())) => info!("HTTP server stopped normally"),
+                    Ok(Ok(port)) => info!("HTTP server stopped normally on port {}", port),
                     Ok(Err(e)) => error!("HTTP server error: {}", e),
                     Err(e) => error!("HTTP server task error: {}", e),
                 }

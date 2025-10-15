@@ -179,7 +179,7 @@ fn extract_port_from_log_line(line: &str) -> Option<u16> {
     }
 }
 
-/// Test that adding a new chain via HTTP preserves existing chains in the config file
+/// Test that adding a new chain via HTTP results in the config file being updated
 #[test]
 fn test_add_chain_updates_config() {
     // Create a temporary directory for this test
@@ -337,7 +337,7 @@ fn test_atomic_config_update() {
 
     // Wait for the request to complete (it should fail due to server interruption)
     let response_result = request_handle.join().expect("Request thread panicked");
-    
+
     // The response should be an error since we interrupted the server
     // This is expected behavior - the server was killed mid-request
     match response_result {
@@ -434,27 +434,40 @@ fn test_chain_added_to_internal_state() {
     // Verify initial chains are loaded in internal state
     let initial_chains_response = get_chains_via_http(allocated_port);
     assert!(initial_chains_response.status().is_success());
-    let initial_chains: tmkms::http_server::models::ListChainsResponse = 
-        initial_chains_response.json().expect("Failed to parse initial chains response");
-    
+    let initial_chains: tmkms::http_server::models::ListChainsResponse = initial_chains_response
+        .json()
+        .expect("Failed to parse initial chains response");
+
     // Should have 2 initial chains
-    assert_eq!(initial_chains.chains.len(), 2, "Should have 2 initial chains in internal state");
+    assert_eq!(
+        initial_chains.chains.len(),
+        2,
+        "Should have 2 initial chains in internal state"
+    );
     assert!(initial_chains.chains.contains(&"test_chain_1".to_string()));
     assert!(initial_chains.chains.contains(&"test_chain_2".to_string()));
 
     // Add a new chain via HTTP
     let new_chain_request = create_new_chain_request(temp_dir.path());
     let add_response = add_chain_via_http(&new_chain_request, allocated_port);
-    assert!(add_response.status().is_success(), "Failed to add new chain");
+    assert!(
+        add_response.status().is_success(),
+        "Failed to add new chain"
+    );
 
     // Verify the new chain was added to internal state via GET endpoint
     let updated_chains_response = get_chains_via_http(allocated_port);
     assert!(updated_chains_response.status().is_success());
-    let updated_chains: tmkms::http_server::models::ListChainsResponse = 
-        updated_chains_response.json().expect("Failed to parse updated chains response");
-    
+    let updated_chains: tmkms::http_server::models::ListChainsResponse = updated_chains_response
+        .json()
+        .expect("Failed to parse updated chains response");
+
     // Should now have 3 chains
-    assert_eq!(updated_chains.chains.len(), 3, "Should have 3 chains in internal state after adding one");
+    assert_eq!(
+        updated_chains.chains.len(),
+        3,
+        "Should have 3 chains in internal state after adding one"
+    );
     assert!(updated_chains.chains.contains(&"test_chain_1".to_string()));
     assert!(updated_chains.chains.contains(&"test_chain_2".to_string()));
     assert!(updated_chains.chains.contains(&"test_chain_3".to_string()));
@@ -485,7 +498,7 @@ fn test_multiple_chains_internal_state() {
     {
         initial_config.providers.softsign.pop();
     }
-    
+
     let initial_config_toml =
         toml::to_string_pretty(&initial_config).expect("Failed to serialize initial config");
     fs::write(&config_path, initial_config_toml).expect("Failed to write initial config");
@@ -497,28 +510,40 @@ fn test_multiple_chains_internal_state() {
     // Verify initial state - should have 1 chain
     let initial_chains_response = get_chains_via_http(allocated_port);
     assert!(initial_chains_response.status().is_success());
-    let initial_chains: tmkms::http_server::models::ListChainsResponse = 
-        initial_chains_response.json().expect("Failed to parse initial chains response");
+    let initial_chains: tmkms::http_server::models::ListChainsResponse = initial_chains_response
+        .json()
+        .expect("Failed to parse initial chains response");
     assert_eq!(initial_chains.chains.len(), 1);
     assert!(initial_chains.chains.contains(&"test_chain_1".to_string()));
 
     // Add second chain
     let chain_2_request = create_chain_request_for_id("test_chain_2", temp_dir.path(), 2);
     let add_response_2 = add_chain_via_http(&chain_2_request, allocated_port);
-    assert!(add_response_2.status().is_success(), "Failed to add test_chain_2");
+    assert!(
+        add_response_2.status().is_success(),
+        "Failed to add test_chain_2"
+    );
 
     // Add third chain
     let chain_3_request = create_chain_request_for_id("test_chain_3", temp_dir.path(), 3);
     let add_response_3 = add_chain_via_http(&chain_3_request, allocated_port);
-    assert!(add_response_3.status().is_success(), "Failed to add test_chain_3");
+    assert!(
+        add_response_3.status().is_success(),
+        "Failed to add test_chain_3"
+    );
 
     // Verify all chains are in internal state
     let final_chains_response = get_chains_via_http(allocated_port);
     assert!(final_chains_response.status().is_success());
-    let final_chains: tmkms::http_server::models::ListChainsResponse = 
-        final_chains_response.json().expect("Failed to parse final chains response");
-    
-    assert_eq!(final_chains.chains.len(), 3, "Should have 3 chains in internal state");
+    let final_chains: tmkms::http_server::models::ListChainsResponse = final_chains_response
+        .json()
+        .expect("Failed to parse final chains response");
+
+    assert_eq!(
+        final_chains.chains.len(),
+        3,
+        "Should have 3 chains in internal state"
+    );
     assert!(final_chains.chains.contains(&"test_chain_1".to_string()));
     assert!(final_chains.chains.contains(&"test_chain_2".to_string()));
     assert!(final_chains.chains.contains(&"test_chain_3".to_string()));
@@ -744,7 +769,11 @@ fn get_chains_via_http(port: u16) -> reqwest::blocking::Response {
     response
 }
 
-fn create_chain_request_for_id(chain_id: &str, temp_dir_path: &Path, chain_number: u8) -> serde_json::Value {
+fn create_chain_request_for_id(
+    chain_id: &str,
+    temp_dir_path: &Path,
+    chain_number: u8,
+) -> serde_json::Value {
     serde_json::json!({
         "chain": {
             "id": chain_id,
