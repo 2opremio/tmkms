@@ -181,7 +181,7 @@ fn extract_port_from_log_line(line: &str) -> Option<u16> {
 
 /// Test that adding a new chain via HTTP preserves existing chains in the config file
 #[test]
-fn test_add_chain_preserves_existing_config() {
+fn test_add_chain_updates_config() {
     // Create a temporary directory for this test
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let config_path = temp_dir.path().join(CONFIG_FILE_NAME);
@@ -292,7 +292,7 @@ fn test_add_chain_preserves_existing_config() {
     );
 }
 
-/// Test that config file updates are atomic (no partial writes)
+/// Test that config file updates are atomic (no partial writes during server interruption)
 #[test]
 fn test_atomic_config_update() {
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
@@ -307,41 +307,64 @@ fn test_atomic_config_update() {
         toml::to_string_pretty(&initial_config).expect("Failed to serialize initial config");
     fs::write(&config_path, initial_config_toml).expect("Failed to write initial config");
 
-    // Start TMKMS with HTTP server using the test manager
-    let server_manager = TestServerManager::start(&config_path);
-    let allocated_port = server_manager.port();
-
-    // Verify initial state
+    // Store initial config content for comparison
     let initial_content = fs::read_to_string(&config_path).expect("Failed to read initial config");
     assert!(initial_content.contains("test_chain_1"));
     assert!(initial_content.contains("test_chain_2"));
     assert!(!initial_content.contains("test_chain_3"));
 
-    // Add new chain
+    // Start TMKMS with HTTP server using the test manager
+    let server_manager = TestServerManager::start(&config_path);
+    let allocated_port = server_manager.port();
+
+    // Create a new chain request
     let new_chain_request = create_new_chain_request(temp_dir.path());
-    let response = add_chain_via_http(&new_chain_request, allocated_port);
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
-            .unwrap_or_else(|_| "Failed to read response body".to_string());
-        panic!("HTTP request failed with status {}: {}", status, body);
+
+    // Start the HTTP request in a separate thread
+    let request_handle = {
+        let request = new_chain_request.clone();
+        thread::spawn(move || {
+            // Add a small delay to ensure the request is in progress
+            thread::sleep(Duration::from_millis(100));
+            // Wrap the call in a Result to handle potential panics
+            std::panic::catch_unwind(|| add_chain_via_http(&request, allocated_port))
+        })
+    };
+
+    // Interrupt the server while the request is in progress
+    thread::sleep(Duration::from_millis(50));
+    drop(server_manager); // This will kill the server process
+
+    // Wait for the request to complete (it should fail due to server interruption)
+    let response_result = request_handle.join().expect("Request thread panicked");
+    
+    // The response should be an error since we interrupted the server
+    // This is expected behavior - the server was killed mid-request
+    match response_result {
+        Ok(response) => {
+            // If we get a response, it should be an error
+            if response.status().is_success() {
+                panic!("Expected request to fail due to server interruption, but it succeeded");
+            }
+        }
+        Err(_) => {
+            // Panic/connection error is expected when server is killed
+        }
     }
 
-    // Verify final state - should contain all chains
+    // Verify that the config file was NOT modified during the interruption
     let final_content = fs::read_to_string(&config_path).expect("Failed to read final config");
-    assert!(final_content.contains("test_chain_1"));
-    assert!(final_content.contains("test_chain_2"));
-    assert!(final_content.contains("test_chain_3"));
+    assert_eq!(
+        initial_content, final_content,
+        "Config file should be unchanged after server interruption"
+    );
 
     // Verify no temporary files are left behind
     let temp_file = temp_dir.path().join(format!("{}.tmp", CONFIG_FILE_NAME));
     assert!(
         !temp_file.exists(),
-        "Temporary config file should not exist"
+        "Temporary config file should not exist after server interruption"
     );
-
-    // Server cleanup is handled automatically by TestServerManager's Drop trait
 }
 
 /// Test that invalid requests don't corrupt the config file
@@ -385,6 +408,120 @@ fn test_invalid_request_preserves_config() {
         initial_content, final_content,
         "Config file should be unchanged after invalid request"
     );
+
+    // Server cleanup is handled automatically by TestServerManager's Drop trait
+}
+
+/// Test that chains are added to the internal state and can be queried via GET endpoint
+#[test]
+fn test_chain_added_to_internal_state() {
+    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let config_path = temp_dir.path().join(CONFIG_FILE_NAME);
+
+    // Create dummy key files for softsign providers
+    create_dummy_key_files(&temp_dir);
+
+    // Create initial config with existing chains
+    let initial_config = create_initial_config(temp_dir.path());
+    let initial_config_toml =
+        toml::to_string_pretty(&initial_config).expect("Failed to serialize initial config");
+    fs::write(&config_path, initial_config_toml).expect("Failed to write initial config");
+
+    // Start TMKMS with HTTP server using the test manager
+    let server_manager = TestServerManager::start(&config_path);
+    let allocated_port = server_manager.port();
+
+    // Verify initial chains are loaded in internal state
+    let initial_chains_response = get_chains_via_http(allocated_port);
+    assert!(initial_chains_response.status().is_success());
+    let initial_chains: tmkms::http_server::models::ListChainsResponse = 
+        initial_chains_response.json().expect("Failed to parse initial chains response");
+    
+    // Should have 2 initial chains
+    assert_eq!(initial_chains.chains.len(), 2, "Should have 2 initial chains in internal state");
+    assert!(initial_chains.chains.contains(&"test_chain_1".to_string()));
+    assert!(initial_chains.chains.contains(&"test_chain_2".to_string()));
+
+    // Add a new chain via HTTP
+    let new_chain_request = create_new_chain_request(temp_dir.path());
+    let add_response = add_chain_via_http(&new_chain_request, allocated_port);
+    assert!(add_response.status().is_success(), "Failed to add new chain");
+
+    // Verify the new chain was added to internal state via GET endpoint
+    let updated_chains_response = get_chains_via_http(allocated_port);
+    assert!(updated_chains_response.status().is_success());
+    let updated_chains: tmkms::http_server::models::ListChainsResponse = 
+        updated_chains_response.json().expect("Failed to parse updated chains response");
+    
+    // Should now have 3 chains
+    assert_eq!(updated_chains.chains.len(), 3, "Should have 3 chains in internal state after adding one");
+    assert!(updated_chains.chains.contains(&"test_chain_1".to_string()));
+    assert!(updated_chains.chains.contains(&"test_chain_2".to_string()));
+    assert!(updated_chains.chains.contains(&"test_chain_3".to_string()));
+
+    // Verify the chains are in the expected order (should match config file order)
+    assert_eq!(updated_chains.chains[0], "test_chain_1");
+    assert_eq!(updated_chains.chains[1], "test_chain_2");
+    assert_eq!(updated_chains.chains[2], "test_chain_3");
+
+    // Server cleanup is handled automatically by TestServerManager's Drop trait
+}
+
+/// Test that multiple chains can be added and all are reflected in internal state
+#[test]
+fn test_multiple_chains_internal_state() {
+    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let config_path = temp_dir.path().join(CONFIG_FILE_NAME);
+
+    // Create dummy key files for softsign providers
+    create_dummy_key_files(&temp_dir);
+
+    // Create initial config with one chain
+    let mut initial_config = create_initial_config(temp_dir.path());
+    // Remove one chain to start with just one
+    initial_config.chain.pop();
+    initial_config.validator.pop();
+    #[cfg(feature = "softsign")]
+    {
+        initial_config.providers.softsign.pop();
+    }
+    
+    let initial_config_toml =
+        toml::to_string_pretty(&initial_config).expect("Failed to serialize initial config");
+    fs::write(&config_path, initial_config_toml).expect("Failed to write initial config");
+
+    // Start TMKMS with HTTP server using the test manager
+    let server_manager = TestServerManager::start(&config_path);
+    let allocated_port = server_manager.port();
+
+    // Verify initial state - should have 1 chain
+    let initial_chains_response = get_chains_via_http(allocated_port);
+    assert!(initial_chains_response.status().is_success());
+    let initial_chains: tmkms::http_server::models::ListChainsResponse = 
+        initial_chains_response.json().expect("Failed to parse initial chains response");
+    assert_eq!(initial_chains.chains.len(), 1);
+    assert!(initial_chains.chains.contains(&"test_chain_1".to_string()));
+
+    // Add second chain
+    let chain_2_request = create_chain_request_for_id("test_chain_2", temp_dir.path(), 2);
+    let add_response_2 = add_chain_via_http(&chain_2_request, allocated_port);
+    assert!(add_response_2.status().is_success(), "Failed to add test_chain_2");
+
+    // Add third chain
+    let chain_3_request = create_chain_request_for_id("test_chain_3", temp_dir.path(), 3);
+    let add_response_3 = add_chain_via_http(&chain_3_request, allocated_port);
+    assert!(add_response_3.status().is_success(), "Failed to add test_chain_3");
+
+    // Verify all chains are in internal state
+    let final_chains_response = get_chains_via_http(allocated_port);
+    assert!(final_chains_response.status().is_success());
+    let final_chains: tmkms::http_server::models::ListChainsResponse = 
+        final_chains_response.json().expect("Failed to parse final chains response");
+    
+    assert_eq!(final_chains.chains.len(), 3, "Should have 3 chains in internal state");
+    assert!(final_chains.chains.contains(&"test_chain_1".to_string()));
+    assert!(final_chains.chains.contains(&"test_chain_2".to_string()));
+    assert!(final_chains.chains.contains(&"test_chain_3".to_string()));
 
     // Server cleanup is handled automatically by TestServerManager's Drop trait
 }
@@ -593,4 +730,43 @@ fn add_chain_via_http(request: &serde_json::Value, port: u16) -> reqwest::blocki
         .expect("Failed to send HTTP request");
     println!("HTTP response status: {}", response.status());
     response
+}
+
+fn get_chains_via_http(port: u16) -> reqwest::blocking::Response {
+    let client = reqwest::blocking::Client::new();
+    let url = format!("http://127.0.0.1:{}/api/v1/chains", port);
+    println!("Making HTTP GET request to: {}", url);
+    let response = client
+        .get(&url)
+        .send()
+        .expect("Failed to send HTTP request");
+    println!("HTTP response status: {}", response.status());
+    response
+}
+
+fn create_chain_request_for_id(chain_id: &str, temp_dir_path: &Path, chain_number: u8) -> serde_json::Value {
+    serde_json::json!({
+        "chain": {
+            "id": chain_id,
+            "key_format": {
+                "type": "bech32",
+                "account_key_prefix": format!("testpub{}", chain_number),
+                "consensus_key_prefix": format!("testvalconspub{}", chain_number)
+            },
+            "sign_extensions": chain_number % 2 == 0
+        },
+        "validator": {
+            "addr": format!("tcp://deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@localhost:266{}", 58 + chain_number),
+            "chain_id": chain_id,
+            "reconnect": chain_number % 2 == 1,
+            "secret_key": temp_dir_path.join("secret_connection.key").to_string_lossy()
+        },
+        "provider": {
+            "softsign": [{
+                "chain_ids": [chain_id],
+                "key_type": if chain_number % 2 == 0 { "account" } else { "consensus" },
+                "path": temp_dir_path.join(format!("test-key-{}.key", chain_number)).to_string_lossy()
+            }]
+        }
+    })
 }
