@@ -18,6 +18,7 @@ use warp::{Filter, Rejection, Reply, http::StatusCode, reply};
 struct ConfigError(String);
 
 impl ConfigError {
+    #[allow(dead_code)]
     fn new(message: String) -> Self {
         Self(message)
     }
@@ -130,28 +131,22 @@ fn merge_provider_config(
     }
 }
 
-/// Add a new chain endpoint
-pub async fn add_chain(request: AddChainRequest) -> Result<impl Reply, Rejection> {
-    info!("Adding new chain: {}", request.chain.id);
-    info!("HTTP server received add_chain request");
-
-    // Validate the request
+/// Validate the add chain request
+fn validate_add_chain_request(request: &AddChainRequest) -> Result<(), ErrorResponse> {
     if request.validator.chain_id != request.chain.id {
-        let error = ErrorResponse {
+        return Err(ErrorResponse {
             error: format!(
                 "Chain ID mismatch: validator chain_id {} != chain id {}",
                 request.validator.chain_id, request.chain.id
             ),
-        };
-        return Ok(reply::with_status(
-            reply::json(&error),
-            StatusCode::BAD_REQUEST,
-        ));
+        });
     }
+    Ok(())
+}
 
-    // Perform atomic configuration update
-    let chain_id = request.chain.id.clone();
-    match atomic_config_update(|config| {
+/// Update the configuration file with the new chain
+fn update_config_file(request: &AddChainRequest) -> Result<(), Error> {
+    atomic_config_update(|config| {
         // Add chain
         config.chain.push(request.chain.clone());
 
@@ -162,47 +157,71 @@ pub async fn add_chain(request: AddChainRequest) -> Result<impl Reply, Rejection
         merge_provider_config(&mut config.providers, &request.provider);
 
         Ok(())
-    }) {
-        Ok(()) => {
-            // Update in-memory registry
-            let chain = Chain::from_config(&request.chain).map_err(|e| {
-                warp::reject::custom(ConfigError::new(format!("Failed to create chain: {}", e)))
-            })?;
-            match chain::REGISTRY.register(chain) {
-                Ok(()) => {
-                    info!("Successfully added chain: {}", chain_id);
-                    let response = AddChainResponse {
-                        message: format!("Successfully added chain {}", chain_id),
-                        chain_id: chain_id.to_string(),
-                    };
-                    Ok(reply::with_status(
-                        reply::json(&response),
-                        StatusCode::CREATED,
-                    ))
-                }
-                Err(e) => {
-                    error!("Failed to register chain in memory: {}", e);
-                    let error = ErrorResponse {
-                        error: format!("Failed to register chain in memory: {}", e),
-                    };
-                    Ok(reply::with_status(
-                        reply::json(&error),
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                    ))
-                }
-            }
-        }
-        Err(e) => {
-            error!("Failed to update configuration: {}", e);
-            let error = ErrorResponse {
-                error: format!("Failed to update configuration: {}", e),
-            };
-            Ok(reply::with_status(
-                reply::json(&error),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            ))
-        }
+    })
+}
+
+/// Register the chain in the in-memory registry
+fn register_chain_in_memory(chain_config: &crate::config::chain::ChainConfig) -> Result<(), Error> {
+    let chain = Chain::from_config(chain_config)?;
+    chain::REGISTRY.register(chain)?;
+    Ok(())
+}
+
+/// Create a success response for chain addition
+fn create_success_response(chain_id: &str) -> Result<reply::WithStatus<reply::Json>, Rejection> {
+    let response = AddChainResponse {
+        message: format!("Successfully added chain {}", chain_id),
+        chain_id: chain_id.to_string(),
+    };
+    Ok(reply::with_status(
+        reply::json(&response),
+        StatusCode::CREATED,
+    ))
+}
+
+/// Create an error response
+fn create_error_response(message: &str, status: StatusCode) -> Result<reply::WithStatus<reply::Json>, Rejection> {
+    let error = ErrorResponse {
+        error: message.to_string(),
+    };
+    Ok(reply::with_status(reply::json(&error), status))
+}
+
+/// Add a new chain endpoint
+pub async fn add_chain(request: AddChainRequest) -> Result<impl Reply, Rejection> {
+    info!("Adding new chain: {}", request.chain.id);
+    info!("HTTP server received add_chain request");
+
+    let chain_id = request.chain.id.clone();
+
+    // Validate the request
+    if let Err(error_response) = validate_add_chain_request(&request) {
+        return Ok(reply::with_status(
+            reply::json(&error_response),
+            StatusCode::BAD_REQUEST,
+        ));
     }
+
+    // Update configuration file
+    if let Err(e) = update_config_file(&request) {
+        error!("Failed to update configuration: {}", e);
+        return create_error_response(
+            &format!("Failed to update configuration: {}", e),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        );
+    }
+
+    // Register chain in memory
+    if let Err(e) = register_chain_in_memory(&request.chain) {
+        error!("Failed to register chain in memory: {}", e);
+        return create_error_response(
+            &format!("Failed to register chain in memory: {}", e),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        );
+    }
+
+    info!("Successfully added chain: {}", chain_id);
+    create_success_response(&chain_id.to_string())
 }
 
 /// List chains endpoint
