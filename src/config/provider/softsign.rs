@@ -13,7 +13,7 @@ use std::{
 };
 
 /// Software signer configuration
-#[derive(Clone, Deserialize, Serialize, Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SoftsignConfig {
     /// Chains this signing key is authorized to be used from
@@ -32,9 +32,16 @@ pub struct SoftsignConfig {
 }
 
 /// Software-backed private key (stored in a file)
-#[derive(Clone, Deserialize, Serialize, Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SoftPrivateKey(PathBuf);
+
+impl SoftPrivateKey {
+    /// Create a new SoftPrivateKey from a path
+    pub fn new<P: Into<PathBuf>>(path: P) -> Self {
+        Self(path.into())
+    }
+}
 
 impl AsRef<Path> for SoftPrivateKey {
     /// Borrow this private key as a path

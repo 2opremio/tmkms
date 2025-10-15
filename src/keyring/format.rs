@@ -6,7 +6,7 @@ use subtle_encoding::bech32;
 use tendermint::TendermintKey;
 
 /// Options for how keys for this chain are represented
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum Format {
     /// Use the Bech32 serialization format with the given key prefixes

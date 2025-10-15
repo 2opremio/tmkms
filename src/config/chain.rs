@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Chain configuration
-#[derive(Clone, Deserialize, Serialize, Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ChainConfig {
     /// Chain ID of this Tendermint network/chain

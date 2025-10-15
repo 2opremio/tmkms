@@ -9,6 +9,7 @@ pub use self::validator::*;
 use self::{chain::ChainConfig, provider::ProviderConfig};
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "http-server")]
 use crate::http_server::HttpServerConfig;
 
 /// Environment variable containing path to config file
@@ -33,6 +34,7 @@ pub struct KmsConfig {
     pub validator: Vec<ValidatorConfig>,
 
     /// HTTP server configuration for dynamic management
+    #[cfg(feature = "http-server")]
     #[serde(default)]
     pub http_server: Option<HttpServerConfig>,
 }

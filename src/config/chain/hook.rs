@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 
 /// Configuration for a particular hook to invoke
-#[derive(Clone, Default, Deserialize, Serialize, Debug)]
+#[derive(Clone, Default, Deserialize, Serialize, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HookConfig {
     /// Command (with arguments) to invoke

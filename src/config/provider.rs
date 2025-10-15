@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Provider configuration
-#[derive(Clone, Default, Deserialize, Serialize, Debug)]
+#[derive(Clone, Default, Deserialize, Serialize, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderConfig {
     /// Software-backed signer
@@ -48,7 +48,7 @@ pub struct ProviderConfig {
 
 /// Types of cryptographic keys
 // TODO(tarcieri): move this into a provider-agnostic module
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub enum KeyType {
     /// Account keys
     #[serde(rename = "account")]

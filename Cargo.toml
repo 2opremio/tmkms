@@ -61,6 +61,9 @@ toml = "0.8"
 abscissa_core = { version = "0.8", features = ["testing"] }
 byteorder = "1"
 rand = "0.8"
+reqwest = { version = "0.11", features = ["json", "blocking"] }
+serial_test = "3"
+tempfile = "3"
 
 [features]
 softsign = []

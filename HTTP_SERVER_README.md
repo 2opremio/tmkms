@@ -123,9 +123,30 @@ This is a proof of concept with the following limitations:
 
 ## Testing
 
+### Manual Testing
+
 Use the provided test script:
 ```bash
 ./test_http_server.sh
 ```
 
 Make sure to have `jq` installed for JSON formatting.
+
+### Integration Tests
+
+The HTTP server includes comprehensive integration tests that verify:
+- Dynamic chain addition via REST API
+- Atomic configuration file updates
+- Preservation of existing configuration
+- Error handling for invalid requests
+
+To run the integration tests:
+
+```bash
+
+# Run only HTTP server integration tests
+cargo test --features softsign,http_server http_server_integration
+
+# Run with verbose output
+cargo test --features softsign,http_server http_server_integration -- --nocapture
+```

@@ -7,9 +7,13 @@ use serde::{Deserialize, Serialize};
 pub struct HttpServerConfig {
     /// Bind address for the HTTP server
     pub bind_address: String,
-    
+
     /// Port for the HTTP server
     pub port: u16,
+
+    /// Path to the configuration file (optional, for dynamic updates)
+    #[serde(skip)]
+    pub config_file_path: Option<std::path::PathBuf>,
 }
 
 impl Default for HttpServerConfig {
@@ -17,6 +21,7 @@ impl Default for HttpServerConfig {
         Self {
             bind_address: "127.0.0.1".to_string(),
             port: 8080,
+            config_file_path: None,
         }
     }
 }

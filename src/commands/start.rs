@@ -1,6 +1,8 @@
 //! Start the KMS
 
-use crate::{chain, client::Client, http_server::HttpServer, prelude::*};
+#[cfg(feature = "http-server")]
+use crate::http_server::HttpServer;
+use crate::{chain, client::Client, prelude::*};
 use abscissa_core::Command;
 use clap::Parser;
 use std::{path::PathBuf, process};
@@ -26,13 +28,29 @@ impl Runnable for StartCommand {
             env!("CARGO_PKG_VERSION")
         );
 
+        // Set the config file path in the application
+        if let Some(config_path) = &self.config {
+            APP.set_config_file_path(config_path.clone());
+        }
+
         // Check if HTTP server is configured
         let config = APP.config();
-        if let Some(http_config) = &config.http_server {
+        #[cfg(feature = "http-server")]
+        if let Some(mut http_config) = config.http_server.clone() {
+            // Set the config file path in the HTTP server config
+            if let Some(config_path) = &self.config {
+                http_config.config_file_path = Some(config_path.clone());
+            }
             info!("HTTP server configured, starting async runtime...");
-            run_app_with_http_server(self.spawn_clients(), http_config.clone());
+            run_app_with_http_server(self.spawn_clients(), http_config);
         } else {
             info!("No HTTP server configured, running in legacy mode...");
+            run_app(self.spawn_clients());
+        }
+
+        #[cfg(not(feature = "http-server"))]
+        {
+            info!("HTTP server feature not enabled, running in legacy mode...");
             run_app(self.spawn_clients());
         }
     }
@@ -59,25 +77,34 @@ impl StartCommand {
 }
 
 /// Run the application with HTTP server
-fn run_app_with_http_server(validator_clients: Vec<Client>, http_config: crate::http_server::HttpServerConfig) {
+#[cfg(feature = "http-server")]
+fn run_app_with_http_server(
+    validator_clients: Vec<Client>,
+    http_config: crate::http_server::HttpServerConfig,
+) {
     // Create a new tokio runtime for the HTTP server
     let rt = tokio::runtime::Runtime::new().unwrap();
-    
-    // Start HTTP server in background
-    let http_server = HttpServer::new(http_config);
-    let http_handle = http_server.start_background();
-    
+
     // Run the main application logic in the tokio runtime
     rt.block_on(async {
+        // Start HTTP server in background within the runtime
+        let http_server = HttpServer::new(http_config);
+        let http_handle = http_server.start_background();
+
         // Spawn the validator clients in the tokio runtime
-        let client_handles: Vec<_> = validator_clients.into_iter().map(|client| {
-            tokio::task::spawn_blocking(move || client.join())
-        }).collect();
-        
+        let client_handles: Vec<_> = validator_clients
+            .into_iter()
+            .map(|client| tokio::task::spawn_blocking(move || client.join()))
+            .collect();
+
         // Wait for either HTTP server or all clients to finish
         tokio::select! {
-            _ = http_handle => {
-                info!("HTTP server stopped");
+            result = http_handle => {
+                match result {
+                    Ok(Ok(())) => info!("HTTP server stopped normally"),
+                    Ok(Err(e)) => error!("HTTP server error: {}", e),
+                    Err(e) => error!("HTTP server task error: {}", e),
+                }
             }
             _ = async {
                 for handle in client_handles {
@@ -85,8 +112,13 @@ fn run_app_with_http_server(validator_clients: Vec<Client>, http_config: crate::
                         error!("Client error: {}", e);
                     }
                 }
-            } => {
                 info!("All clients finished");
+                // Keep the HTTP server running even if clients fail
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                }
+            } => {
+                // This should never be reached due to the infinite loop above
             }
         }
     });
