@@ -19,6 +19,9 @@ pub struct KmsApplication {
 
     /// Application state.
     state: application::State<Self>,
+
+    /// Path to the configuration file (set at runtime)
+    config_file_path: std::sync::Mutex<Option<std::path::PathBuf>>,
 }
 
 impl Application for KmsApplication {
@@ -71,5 +74,22 @@ impl Application for KmsApplication {
         } else {
             trace::Config::default()
         }
+    }
+}
+
+impl KmsApplication {
+    /// Set the configuration file path
+    pub fn set_config_file_path(&self, path: std::path::PathBuf) {
+        if let Ok(mut config_path) = self.config_file_path.lock() {
+            *config_path = Some(path);
+        }
+    }
+
+    /// Get the configuration file path
+    pub fn get_config_file_path(&self) -> Option<std::path::PathBuf> {
+        self.config_file_path
+            .lock()
+            .ok()
+            .and_then(|path| path.clone())
     }
 }

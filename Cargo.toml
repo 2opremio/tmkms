@@ -53,17 +53,24 @@ uuid = { version = "1", features = ["serde"], optional = true }
 wait-timeout = "0.2"
 yubihsm = { version = "0.42", features = ["secp256k1", "setup", "usb"], optional = true }
 zeroize = "1"
+warp = "0.3"
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros"] }
+toml = "0.8"
 
 [dev-dependencies]
 abscissa_core = { version = "0.8", features = ["testing"] }
 byteorder = "1"
 rand = "0.8"
+reqwest = { version = "0.11", features = ["json", "blocking"] }
+serial_test = "3"
+tempfile = "3"
 
 [features]
 softsign = []
 yubihsm-mock = ["yubihsm/mockhsm"]
 yubihsm-server = ["yubihsm/http-server", "rpassword"]
 fortanixdsm = ["elliptic-curve", "sdkms", "url", "uuid"]
+http-server = []
 
 # Enable integer overflow checks in release builds for security reasons
 [profile.release]

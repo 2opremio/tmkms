@@ -6,14 +6,14 @@ use crate::{
     error::{Error, ErrorKind::ConfigError},
     prelude::*,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
 
 /// Software signer configuration
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SoftsignConfig {
     /// Chains this signing key is authorized to be used from
@@ -32,9 +32,16 @@ pub struct SoftsignConfig {
 }
 
 /// Software-backed private key (stored in a file)
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SoftPrivateKey(PathBuf);
+
+impl SoftPrivateKey {
+    /// Create a new SoftPrivateKey from a path
+    pub fn new<P: Into<PathBuf>>(path: P) -> Self {
+        Self(path.into())
+    }
+}
 
 impl AsRef<Path> for SoftPrivateKey {
     /// Borrow this private key as a path
@@ -44,7 +51,7 @@ impl AsRef<Path> for SoftPrivateKey {
 }
 
 /// Private key format
-#[derive(Copy, Clone, Debug, Default, Deserialize, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, Eq, Hash, PartialEq)]
 pub enum KeyFormat {
     /// Base64-encoded
     #[serde(rename = "base64")]

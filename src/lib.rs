@@ -31,6 +31,9 @@ pub mod session;
 #[cfg(feature = "yubihsm")]
 pub mod yubihsm;
 
+#[cfg(feature = "http-server")]
+pub mod http_server;
+
 pub use crate::application::KmsApplication;
 
 // Map type used within this application

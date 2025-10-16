@@ -24,6 +24,10 @@ use tmkms::{
 /// Integration tests for the KMS command-line interface
 mod cli;
 
+/// Integration tests for HTTP server functionality
+#[cfg(feature = "softsign")]
+mod http_server_integration;
+
 /// Path to the KMS executable
 const KMS_EXE_PATH: &str = "target/debug/tmkms";
 

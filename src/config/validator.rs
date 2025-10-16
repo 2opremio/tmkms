@@ -6,7 +6,7 @@ use tendermint::chain;
 use tendermint_config::net;
 
 /// Validator configuration
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ValidatorConfig {
     /// Address of the validator (`tcp://` or `unix://`)
